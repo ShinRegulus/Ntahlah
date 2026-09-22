@@ -3,39 +3,37 @@
  * Target Site: https://anichan.to
  */
 
-const BASE_URL = 'https://anichan.to';
-
-const headers = {
-  'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-  'Referer': BASE_URL + '/'
-};
-
 class AniChanProvider {
   constructor() {
     this.id = 'anichan';
     this.name = 'AniChan';
-    this.baseUrl = BASE_URL;
+    this.baseUrl = 'https://anichan.to';
+    this.headers = {
+      'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+      'Referer': 'https://anichan.to/'
+    };
   }
 
   /**
-   * Search anime by query
-   * @param {string} query 
-   * @returns {Promise<Array>}
+   * Search Anime
    */
   async search(query) {
     try {
       const searchUrl = `${this.baseUrl}/search?keyword=${encodeURIComponent(query)}`;
-      const response = await fetch(searchUrl, { headers });
-      const html = await response.text();
+      const response = await fetch(searchUrl, { headers: this.headers });
+      if (!response.ok) return [];
 
+      const html = await response.text();
       const results = [];
-      // Parsing HTML search results
-      const itemRegex = /<div class="flw-item">[\s\S]*?<a href="([^"]+)" class="film-poster-ahref" title="([^"]+)">[\s\S]*?<img [^>]*data-src="([^"]+)"/g;
+
+      // Flexible RegEx matching for AniChan items
+      const itemRegex = /<a[^>]+href=["'](\/[^"']+)["'][^>]*class=["'][^"']*film-poster-ahref[^"']*["'][^>]*title=["']([^"']+)["'][\s\S]*?<img[^>]+(?:data-src|src)=["']([^"']+)["']/g;
       
       let match;
       while ((match = itemRegex.exec(html)) !== null) {
+        const path = match[1].startsWith('/') ? match[1] : `/${match[1]}`;
         results.push({
-          id: match[1].replace('/', ''), // Path URL/Slug anime
+          id: path,
           title: match[2].trim(),
           poster: match[3],
           type: 'tv',
@@ -45,90 +43,91 @@ class AniChanProvider {
 
       return results;
     } catch (error) {
-      console.error('[AniChan] Search error:', error);
+      console.error('[AniChan Error - search]:', error);
       return [];
     }
   }
 
   /**
-   * Get detail information and episode list
-   * @param {string} animeId 
-   * @returns {Promise<Object>}
+   * Get Detail & Episode List
    */
-  async getDetail(animeId) {
+  async getDetail(id) {
     try {
-      const detailUrl = `${this.baseUrl}/${animeId}`;
-      const response = await fetch(detailUrl, { headers });
+      const detailUrl = id.startsWith('http') ? id : `${this.baseUrl}${id.startsWith('/') ? '' : '/'}${id}`;
+      const response = await fetch(detailUrl, { headers: this.headers });
+      if (!response.ok) return null;
+
       const html = await response.text();
 
-      // Extract Title & Synopsis
-      const titleMatch = html.match(/<h2 class="film-name dynamic-name">([^<]+)<\/h2>/);
-      const synopsisMatch = html.match(/<div class="description">([^<]+)<\/div>/);
-      const posterMatch = html.match(/<img class="film-poster-img" src="([^"]+)"/);
+      // Extract details
+      const titleMatch = html.match(/<h[12][^>]*class=["'][^"']*film-name[^"']*["'][^>]*>([\s\S]*?)<\/h[12]>/i);
+      const synopsisMatch = html.match(/<div[^>]*class=["'][^"']*description[^"']*["'][^>]*>([\s\S]*?)<\/div>/i);
+      const posterMatch = html.match(/<img[^>]*class=["'][^"']*film-poster-img[^"']*["'][^>]*src=["']([^"']+)["']/i);
 
+      // Extract episodes
       const episodes = [];
-      // Extract episode list
-      const epRegex = /<a [^>]*href="([^"]+)" [^>]*data-number="([^"]+)" [^>]*title="([^"]*)"/g;
-      
+      const epRegex = /<a[^>]+href=["'](\/[^"']+)["'][^>]*data-number=["']([^"']+)["'][^>]*>/g;
+
       let match;
       while ((match = epRegex.exec(html)) !== null) {
         episodes.push({
-          id: match[1].replace('/', ''),
-          number: parseInt(match[2], 10) || 1,
-          title: match[3] ? match[3].trim() : `Episode ${match[2]}`
+          id: match[1],
+          number: parseFloat(match[2]) || episodes.length + 1,
+          title: `Episode ${match[2]}`
         });
       }
 
       return {
-        id: animeId,
-        title: titleMatch ? titleMatch[1].trim() : '',
-        synopsis: synopsisMatch ? synopsisMatch[1].trim() : '',
+        id: id,
+        title: titleMatch ? titleMatch[1].replace(/<[^>]+>/g, '').trim() : 'Unknown Anime',
+        synopsis: synopsisMatch ? synopsisMatch[1].replace(/<[^>]+>/g, '').trim() : '',
         poster: posterMatch ? posterMatch[1] : '',
-        episodes: episodes
+        episodes: episodes.reverse() // Sort episode 1, 2, 3...
       };
     } catch (error) {
-      console.error('[AniChan] Detail error:', error);
+      console.error('[AniChan Error - getDetail]:', error);
       return null;
     }
   }
 
   /**
-   * Extract video stream sources
-   * @param {string} episodeId 
-   * @returns {Promise<Array>}
+   * Get Streams (Video Sources)
    */
   async getStreams(episodeId) {
     try {
-      const epUrl = `${this.baseUrl}/${episodeId}`;
-      const response = await fetch(epUrl, { headers });
-      const html = await response.text();
+      const epUrl = episodeId.startsWith('http') ? episodeId : `${this.baseUrl}${episodeId.startsWith('/') ? '' : '/'}${episodeId}`;
+      const response = await fetch(epUrl, { headers: this.headers });
+      if (!response.ok) return [];
 
+      const html = await response.text();
       const streams = [];
 
-      // Look for iframe player or direct embed sources
-      const iframeMatch = html.match(/<iframe [^>]*src="([^"]+)"/i);
-      
-      if (iframeMatch) {
-        const embedUrl = iframeMatch[1];
+      // Extract Iframe Embed / Stream Player
+      const iframeMatch = html.match(/<iframe[^>]+src=["']([^"']+)["']/i);
 
-        // Case 1: HLS / M3U8 Stream
+      if (iframeMatch) {
+        let embedUrl = iframeMatch[1];
+        if (embedUrl.startsWith('//')) embedUrl = 'https:' + embedUrl;
+
+        // Extract direct .m3u8 if present in iframe target
         if (embedUrl.includes('.m3u8')) {
           streams.push({
-            url: embedUrl,
+            file: embedUrl,
             type: 'hls',
             quality: 'auto',
             headers: { 'Referer': this.baseUrl }
           });
-        } 
-        // Case 2: Embed Player Parsing (e.g. Megacloud / RapidCloud)
-        else {
-          const embedRes = await fetch(embedUrl, { headers: { 'Referer': this.baseUrl } });
+        } else {
+          // Fetch embed player html to find .m3u8 source
+          const embedRes = await fetch(embedUrl, { 
+            headers: { 'Referer': this.baseUrl, 'User-Agent': this.headers['User-Agent'] } 
+          });
           const embedHtml = await embedRes.text();
           
-          const m3u8Match = embedHtml.match(/(https?:\/\/[^"]+\.m3u8)/);
+          const m3u8Match = embedHtml.match(/(https?:\/\/[^"'\s]+\.m3u8[^"'\s]*)/i);
           if (m3u8Match) {
             streams.push({
-              url: m3u8Match[1],
+              file: m3u8Match[1],
               type: 'hls',
               quality: 'auto',
               headers: { 'Referer': embedUrl }
@@ -139,16 +138,15 @@ class AniChanProvider {
 
       return streams;
     } catch (error) {
-      console.error('[AniChan] Stream extraction error:', error);
+      console.error('[AniChan Error - getStreams]:', error);
       return [];
     }
   }
 }
 
-// Export module untuk Nuvio Provider Runtime
+// Export Module untuk Nuvio Provider Engine
 if (typeof module !== 'undefined' && module.exports) {
   module.exports = AniChanProvider;
-} else {
+} else if (typeof window !== 'undefined') {
   window.AniChanProvider = AniChanProvider;
 }
-
