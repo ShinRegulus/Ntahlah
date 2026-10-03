@@ -3,24 +3,18 @@
   "version": "1.0.0",
   "scrapers": [
     {
-      {
-  "id": "movy-provider",
-  "name": "Movy.sx Provider",
-  "version": "1.0.0",
-  "description": "Provider plugin web scraping untuk mengambil sumber film dan series dari movy.sx",
-  "author": "Community",
-  "icon": "https://movy.sx/favicon.ico",
-  "type": "provider",
-  "main": "movy.js",
-  "sources": [
-    {
       "id": "movy",
       "name": "Movy",
       "types": ["movie", "tv"]
     }
   ],
+  "id": "movy-provider",
+  "description": "Provider plugin web scraping untuk mengambil sumber film dan series dari movy.sx",
+  "author": "Community",
+  "icon": "https://movy.sx/favicon.ico",
+  "type": "provider",
+  "main": "movy.js",
   "permissions": [
     "network"
   ]
-    }
-    
+}
